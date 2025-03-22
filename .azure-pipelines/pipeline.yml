@@ -1,0 +1,115 @@
+trigger: none
+pool: GIGAGENT
+parameters:
+  - name: environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - prod
+variables:
+  work_dir: "$(System.DefaultWorkingDirectory)/todoapp_infra"
+stages:
+  - stage: Terraformvalidate
+    displayName: Terraform validate
+    jobs:
+      - job: Terraformvalidate
+        displayName: Terraform validate
+        steps:
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: "azurerm"
+              command: "init"
+              workingDirectory: "$(work_dir)"
+              backendServiceArm: "Az-pipeline-wif"
+              backendAzureRmResourceGroupName: "az-dev-pipe"
+              backendAzureRmStorageAccountName: "azdevpipe"
+              backendAzureRmContainerName: "tfstate"
+              backendAzureRmKey: "${{parameters.environment}}.terraform.tfstate"
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: "azurerm"
+              command: "validate"
+              workingDirectory: "$(work_dir)"
+
+  - stage: SanityCheck
+    displayName: Sanity Check
+    jobs:
+      - job: SanityCheck
+        displayName: Sanity Check
+        condition: Always()
+        steps:
+          - task: tfsec@1
+            displayName: "Tfsec"
+            condition: Always()
+            inputs:
+              version: "v1.26.0"
+              dir: "$(work_dir)"
+          - task: PowerShell@2
+            displayName: "checkov"
+            condition: Always()
+            inputs:
+              targetType: "inline"
+              script: |
+                checkov -d . -o junitxml --output-file $(System.DefaultWorkingDirectory)/
+              workingDirectory: "$(work_dir)"
+          - task: PowerShell@2
+            displayName: "tflint"
+            condition: Always()
+            inputs:
+              targetType: "inline"
+              script: |
+                tflint --chdir=$(work_dir) --format=junit > $(System.DefaultWorkingDirectory)/tflint_report.xml
+              workingDirectory: "$(work_dir)"
+          - task: PublishTestResults@2
+            condition: Always()
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "$(System.DefaultWorkingDirectory)/*.xml"
+              searchFolder: "$(System.DefaultWorkingDirectory)/"
+              testRunTitle: "checkov & tflint"
+
+  - stage: ManualValidate
+    condition: eq(variables['Build.SourceBranchName'], 'main')
+    displayName: Manual Validate
+    jobs:
+      - job: ManualValidate
+        displayName: Manual Validate
+        pool: server
+        steps:
+          - task: ManualValidation@1
+            inputs:
+              notifyUsers: "vedan666"
+              allowApproversToApproveTheirOwnRuns: true
+              timeoutInMinutes: 5
+
+  - stage: TerraformPlan
+    dependsOn: ManualValidate
+    displayName: Terraform Plan
+    jobs:
+      - job: TerraformPlan
+        displayName: Terraform Plan
+        steps:
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: "azurerm"
+              command: "init"
+              workingDirectory: "$(work_dir)"
+              backendServiceArm: "Az-pipeline-wif"
+              backendAzureRmResourceGroupName: "az-dev-pipe"
+              backendAzureRmStorageAccountName: "azdevpipe"
+              backendAzureRmContainerName: "tfstate"
+              backendAzureRmKey: "${{parameters.environment}}.terraform.tfstate"
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: "azurerm"
+              command: "plan"
+              workingDirectory: "$(work_dir)"
+              commandOptions: "--var-file=${{parameters.environment}}.terraform.tfvars"
+              environmentServiceNameAzureRM: "Az-pipeline-wif"
+          - task: PowerShell@2
+            displayName: terra test
+            inputs:
+              targetType: 'inline'
+              script: 'go test -v'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/terratest'
