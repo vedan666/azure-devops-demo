@@ -65,6 +65,15 @@ terraform apply -var-file="dev.terraform.tfvars"
 
 ---
 
+## 🚀 Pipeline Stages
+
+1. **Terraform Validate** – Initializes and validates Terraform config.
+2. **Sanity Check** – Runs tfsec, checkov, and tflint for security and linting.
+3. **Manual Validate** – Requires approval before proceeding on the `main` branch.
+4. **Terraform Plan** – Generates a Terraform plan for review.
+
+---
+
 ## ⚙️ Azure DevOps Pipeline
 
 An example Azure DevOps pipeline is defined in `.azure-pipelines/pipeline.yml`. It typically includes:
@@ -91,6 +100,16 @@ go test -v
 ```
 
 These tests validate the deployed resources using Go-based test cases.
+
+---
+
+## 🔧 Tools Used
+
+- Azure DevOps Pipelines (YAML)
+- Terraform CLI & AzureRM Provider
+- tfsec
+- checkov
+- tflint
 
 ---
 
